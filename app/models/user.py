@@ -17,7 +17,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    auth_provider: Mapped[AuthProvider] = mapped_column(Enum(AuthProvider, name="auth_provider_enum"), default=AuthProvider.EMAIL, nullable=False)
+    auth_provider: Mapped[AuthProvider] = mapped_column(
+        Enum(AuthProvider, name="auth_provider_enum", values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=AuthProvider.EMAIL, 
+        nullable=False
+    )
     provider_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     
