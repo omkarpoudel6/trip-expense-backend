@@ -21,8 +21,14 @@ from app.db.base_all_models import Base
 from app.db.session import get_db
 from app.main import app
 
-_test_db_url = str(settings.DATABASE_URL).replace("postgresql://", "postgresql+asyncpg://", 1)
+#_test_db_url = str(settings.DATABASE_URL).replace("postgresql://", "postgresql+asyncpg://", 1).rsplit("/", 1)[0] + "/trip_expense_test"
 
+_test_db_url = (
+    str(settings.DATABASE_URL)
+    .replace("postgresql://", "postgresql+asyncpg://", 1)
+    .rsplit("/", 1)[0]
+    + "/trip_expense_test"
+)
 
 @pytest_asyncio.fixture(scope="function")
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
