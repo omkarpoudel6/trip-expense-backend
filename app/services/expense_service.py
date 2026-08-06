@@ -102,5 +102,12 @@ async def create_expense(
         db.add(ExpenseSplit(expense_id=expense.id, trip_member_id=member_id, share_amount=share))
 
     await db.commit()
-    await db.refresh(expense)
+    #await db.refresh(expense)
+    await db.refresh(expense, attribute_names=["splits"])
     return expense
+
+async def list_trip_expenses(db: AsyncSession, trip_id: uuid.UUID) -> list[Expense]:
+    result = await db.execute(
+        select(Expense).where(Expense.trip_id == trip_id, Expense.is_deleted.is_(False))
+    )
+    return list(result.scalars().all())
