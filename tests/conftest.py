@@ -21,6 +21,8 @@ from app.db.base_all_models import Base
 from app.db.session import get_db
 from app.main import app
 
+from app.models.category import Category
+
 #_test_db_url = str(settings.DATABASE_URL).replace("postgresql://", "postgresql+asyncpg://", 1).rsplit("/", 1)[0] + "/trip_expense_test"
 
 _test_db_url = (
@@ -29,6 +31,18 @@ _test_db_url = (
     .rsplit("/", 1)[0]
     + "/trip_expense_test"
 )
+
+DEFAULT_CATEGORIES = [
+    ("Food", "utensils"), ("Hotel", "bed"), ("Transport", "car"),
+    ("Fuel", "gas-pump"), ("Shopping", "shopping-bag"), ("Activities", "hiking"),
+    ("Entertainment", "film"), ("Visa", "passport"), ("Flight", "plane"),
+    ("Miscellaneous", "more-horizontal"),
+]
+
+async def _seed_default_categories(session: AsyncSession) -> None:
+    for name, icon in DEFAULT_CATEGORIES:
+        session.add(Category(trip_id=None, name=name, icon=icon))
+    await session.commit()
 
 @pytest_asyncio.fixture(scope="function")
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -39,6 +53,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         await conn.run_sync(Base.metadata.create_all)
 
     async with session_factory() as session:
+        await _seed_default_categories(session)
         yield session
 
     async with engine.begin() as conn:
