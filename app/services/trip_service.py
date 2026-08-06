@@ -101,3 +101,29 @@ async def archive_trip(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID)
     await db.commit()
     await db.refresh(trip)
     return trip
+
+async def remove_member(
+    db: AsyncSession, trip_id: uuid.UUID, admin_user_id: uuid.UUID, target_member_id: uuid.UUID
+) -> None:
+    await require_admin(db, trip_id, admin_user_id)
+
+    result = await db.execute(
+        select(TripMember).where(TripMember.id == target_member_id, TripMember.trip_id == trip_id)
+    )
+    member = result.scalar_one_or_none()
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found.")
+
+    # NOTE: balance-based removal block (409 if net_balance != 0) is deferred
+    # until the expense/settlement milestone exists -- there's no balance to
+    # check yet. This is a known gap, not an oversight; revisit before
+    # treating trip management as production-ready.
+    member.status = MemberStatus.REMOVED
+    await db.commit()
+
+
+async def leave_trip(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    membership = await get_membership_or_403(db, trip_id, user_id)
+    # Same deferred balance-check note as remove_member above.
+    membership.status = MemberStatus.REMOVED
+    await db.commit()
