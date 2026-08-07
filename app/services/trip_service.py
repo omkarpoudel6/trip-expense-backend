@@ -8,11 +8,13 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from decimal import Decimal
 
 from app.models.trip import Trip, TripStatus
 from app.models.trip_member import MemberRole, MemberStatus, TripMember
 from app.schemas.trip import CreateTripRequest, UpdateTripRequest
 
+from app.services.settlement_service import calculate_balances
 
 async def get_trip_or_404(db: AsyncSession, trip_id: uuid.UUID) -> Trip:
     result = await db.execute(select(Trip).where(Trip.id == trip_id))
@@ -114,16 +116,28 @@ async def remove_member(
     if member is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found.")
 
-    # NOTE: balance-based removal block (409 if net_balance != 0) is deferred
-    # until the expense/settlement milestone exists -- there's no balance to
-    # check yet. This is a known gap, not an oversight; revisit before
-    # treating trip management as production-ready.
+    balances = await calculate_balances(db, trip_id)
+    net_balance = balances.get(target_member_id, Decimal("0.00"))
+    if net_balance != 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot remove member with an outstanding balance of {net_balance}. Settle up first.",
+        )
+
     member.status = MemberStatus.REMOVED
     await db.commit()
 
 
 async def leave_trip(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID) -> None:
     membership = await get_membership_or_403(db, trip_id, user_id)
-    # Same deferred balance-check note as remove_member above.
+
+    balances = await calculate_balances(db, trip_id)
+    net_balance = balances.get(membership.id, Decimal("0.00"))
+    if net_balance != 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot leave trip with an outstanding balance of {net_balance}. Settle up first.",
+        )
+
     membership.status = MemberStatus.REMOVED
     await db.commit()
