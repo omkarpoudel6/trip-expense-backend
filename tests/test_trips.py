@@ -193,3 +193,76 @@ async def test_leave_trip(client: AsyncClient, valid_trip_payload: dict):
     # After leaving, member should no longer have access
     get_resp = await client.get(f"/api/v1/trips/{trip_id}", headers=_auth_headers(member["tokens"]))
     assert get_resp.status_code == 403
+    
+
+@pytest.mark.asyncio
+async def test_remove_member_blocked_with_outstanding_balance(db_session):
+    from sqlalchemy import select
+    from app.models.category import Category
+    from app.models.trip_member import TripMember
+    from app.schemas.auth import RegisterRequest
+    from app.schemas.expense import CreateExpenseRequest
+    from app.schemas.trip import CreateTripRequest
+    from app.services import auth_service, expense_service, trip_invite_service, trip_service
+    from fastapi import HTTPException
+    import uuid as uuid_module
+
+    owner = await auth_service.register_user(
+        db_session, RegisterRequest(email="rmowner3@example.com", password="TestPass123", display_name="Owner")
+    )
+    member = await auth_service.register_user(
+        db_session, RegisterRequest(email="rmmember3@example.com", password="TestPass123", display_name="Member")
+    )
+    trip = await trip_service.create_trip(
+        db_session, owner.id,
+        CreateTripRequest(name="Remove Test", destination="X", start_date="2026-12-01", end_date="2026-12-05", base_currency="USD"),
+    )
+    invite = await trip_invite_service.create_invite(db_session, trip.id, owner.id)
+    await trip_invite_service.join_trip_by_code(db_session, invite.code, member.id)
+
+    members_result = await db_session.execute(select(TripMember).where(TripMember.trip_id == trip.id))
+    m = {tm.user_id: tm.id for tm in members_result.scalars().all()}
+
+    category = (await db_session.execute(select(Category).where(Category.name == "Food"))).scalars().first()
+    await expense_service.create_expense(
+        db_session, trip.id, owner.id,
+        CreateExpenseRequest(
+            category_id=category.id, paid_by=m[owner.id], amount=100.00, currency="USD",
+            split_type="equal", split_between=[m[owner.id], m[member.id]],
+            expense_date="2026-12-02", client_uuid=uuid_module.uuid4(),
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await trip_service.remove_member(db_session, trip.id, owner.id, m[member.id])
+
+    assert exc_info.value.status_code == 409
+    assert "outstanding balance" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_remove_member_succeeds_with_zero_balance(db_session):
+    from sqlalchemy import select
+    from app.models.trip_member import TripMember
+    from app.schemas.auth import RegisterRequest
+    from app.schemas.trip import CreateTripRequest
+    from app.services import auth_service, trip_invite_service, trip_service
+
+    owner = await auth_service.register_user(
+        db_session, RegisterRequest(email="rmowner4@example.com", password="TestPass123", display_name="Owner")
+    )
+    member = await auth_service.register_user(
+        db_session, RegisterRequest(email="rmmember4@example.com", password="TestPass123", display_name="Member")
+    )
+    trip = await trip_service.create_trip(
+        db_session, owner.id,
+        CreateTripRequest(name="Remove Test 2", destination="X", start_date="2026-12-01", end_date="2026-12-05", base_currency="USD"),
+    )
+    invite = await trip_invite_service.create_invite(db_session, trip.id, owner.id)
+    await trip_invite_service.join_trip_by_code(db_session, invite.code, member.id)
+
+    members_result = await db_session.execute(select(TripMember).where(TripMember.trip_id == trip.id))
+    m = {tm.user_id: tm.id for tm in members_result.scalars().all()}
+
+    # No expenses -- zero balance, removal should succeed without error.
+    await trip_service.remove_member(db_session, trip.id, owner.id, m[member.id])
