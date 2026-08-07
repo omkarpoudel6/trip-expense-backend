@@ -50,3 +50,40 @@ async def calculate_balances(db: AsyncSession, trip_id: uuid.UUID) -> dict[uuid.
         balances.setdefault(member_id, Decimal("0.00"))
 
     return dict(balances)
+
+def minimize_settlements(balances: dict[uuid.UUID, Decimal]) -> list[tuple[uuid.UUID, uuid.UUID, Decimal]]:
+    """
+    Given {trip_member_id: net_balance}, returns a list of
+    (from_member_id, to_member_id, amount) transfers that settles
+    everyone to zero, using the minimum number of transactions.
+    """
+    creditors = []
+    debtors = []
+    for member_id, balance in balances.items():
+        if balance > 0:
+            creditors.append([member_id, balance])
+        elif balance < 0:
+            debtors.append([member_id, balance])
+
+    creditors.sort(key=lambda c: c[1], reverse=True)  # largest owed first
+    debtors.sort(key=lambda d: d[1])                   # most negative first
+
+    transactions: list[tuple[uuid.UUID, uuid.UUID, Decimal]] = []
+
+    while creditors and debtors:
+        creditor = creditors[0]
+        debtor = debtors[0]
+
+        transfer_amount = min(creditor[1], -debtor[1])
+
+        transactions.append((debtor[0], creditor[0], transfer_amount))
+
+        creditor[1] -= transfer_amount
+        debtor[1] += transfer_amount
+
+        if creditor[1] == 0:
+            creditors.pop(0)
+        if debtor[1] == 0:
+            debtors.pop(0)
+
+    return transactions
