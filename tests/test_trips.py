@@ -266,3 +266,29 @@ async def test_remove_member_succeeds_with_zero_balance(db_session):
 
     # No expenses -- zero balance, removal should succeed without error.
     await trip_service.remove_member(db_session, trip.id, owner.id, m[member.id])
+    
+@pytest.mark.asyncio
+async def test_list_trips_returns_only_users_trips(client: AsyncClient, valid_trip_payload: dict):
+    owner = await _register_and_login(client, "list1@example.com", "Owner")
+    await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(owner["tokens"]))
+    await client.post(
+        "/api/v1/trips",
+        json={**valid_trip_payload, "name": "Second Trip"},
+        headers=_auth_headers(owner["tokens"]),
+    )
+
+    outsider = await _register_and_login(client, "list2@example.com", "Outsider")
+    await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(outsider["tokens"]))
+
+    response = await client.get("/api/v1/trips", headers=_auth_headers(owner["tokens"]))
+
+    assert response.status_code == 200
+    names = [t["name"] for t in response.json()]
+    assert len(response.json()) == 2
+    assert "Second Trip" in names
+
+
+@pytest.mark.asyncio
+async def test_list_trips_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/trips")
+    assert response.status_code == 403
