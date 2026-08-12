@@ -141,3 +141,12 @@ async def leave_trip(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID) -
 
     membership.status = MemberStatus.REMOVED
     await db.commit()
+    
+async def list_user_trips(db: AsyncSession, user_id: uuid.UUID) -> list[Trip]:
+    result = await db.execute(
+        select(Trip)
+        .join(TripMember, TripMember.trip_id == Trip.id)
+        .where(TripMember.user_id == user_id, TripMember.status == MemberStatus.ACTIVE)
+        .order_by(Trip.created_at.desc())
+    )
+    return list(result.scalars().all())

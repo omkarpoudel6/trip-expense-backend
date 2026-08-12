@@ -17,6 +17,14 @@ from app.services import trip_invite_service, trip_service
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
+@router.get("", response_model=list[TripResponse])
+async def list_trips(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[TripResponse]:
+    trips = await trip_service.list_user_trips(db, current_user.id)
+    return [TripResponse.model_validate(t) for t in trips]
+
 
 @router.post("", response_model=TripResponse, status_code=status.HTTP_201_CREATED)
 async def create_trip(
