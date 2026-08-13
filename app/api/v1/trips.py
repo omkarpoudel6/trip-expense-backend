@@ -10,6 +10,7 @@ from app.schemas.trip import (
     CreateTripRequest,
     InviteResponse,
     JoinTripRequest,
+    TripMemberResponse,
     TripResponse,
     UpdateTripRequest,
 )
@@ -106,3 +107,12 @@ async def join_trip(
 ) -> TripResponse:
     trip = await trip_invite_service.join_trip_by_code(db, payload.code, current_user.id)
     return TripResponse.model_validate(trip)
+
+@router.get("/{trip_id}/members", response_model=list[TripMemberResponse])
+async def list_members(
+    trip_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[TripMemberResponse]:
+    members = await trip_service.list_trip_members(db, trip_id, current_user.id)
+    return [TripMemberResponse.model_validate(m) for m in members]

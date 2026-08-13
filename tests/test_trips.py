@@ -292,3 +292,20 @@ async def test_list_trips_returns_only_users_trips(client: AsyncClient, valid_tr
 async def test_list_trips_requires_auth(client: AsyncClient):
     response = await client.get("/api/v1/trips")
     assert response.status_code == 403
+    
+@pytest.mark.asyncio
+async def test_list_members_returns_active_members(client: AsyncClient, valid_trip_payload: dict):
+    owner = await _register_and_login(client, "members1@example.com", "Owner")
+    create_resp = await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(owner["tokens"]))
+    trip_id = create_resp.json()["id"]
+
+    invite_resp = await client.post(f"/api/v1/trips/{trip_id}/invites", headers=_auth_headers(owner["tokens"]))
+    code = invite_resp.json()["code"]
+    member = await _register_and_login(client, "members2@example.com", "Member")
+    await client.post("/api/v1/trips/join", json={"code": code}, headers=_auth_headers(member["tokens"]))
+
+    response = await client.get(f"/api/v1/trips/{trip_id}/members", headers=_auth_headers(owner["tokens"]))
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+    roles = {m["role"] for m in response.json()}
+    assert roles == {"admin", "member"}
