@@ -150,3 +150,10 @@ async def list_user_trips(db: AsyncSession, user_id: uuid.UUID) -> list[Trip]:
         .order_by(Trip.created_at.desc())
     )
     return list(result.scalars().all())
+
+async def list_trip_members(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID) -> list[TripMember]:
+    await get_membership_or_403(db, trip_id, user_id)
+    result = await db.execute(
+        select(TripMember).where(TripMember.trip_id == trip_id, TripMember.status == MemberStatus.ACTIVE)
+    )
+    return list(result.scalars().all())
