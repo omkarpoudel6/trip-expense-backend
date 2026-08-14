@@ -7,6 +7,7 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.trip import (
+    AddShadowMemberRequest,
     CreateTripRequest,
     InviteResponse,
     JoinTripRequest,
@@ -108,6 +109,15 @@ async def join_trip(
     trip = await trip_invite_service.join_trip_by_code(db, payload.code, current_user.id)
     return TripResponse.model_validate(trip)
 
+# @router.get("/{trip_id}/members", response_model=list[TripMemberResponse])
+# async def list_members(
+#     trip_id: uuid.UUID,
+#     current_user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_db),
+# ) -> list[TripMemberResponse]:
+#     members = await trip_service.list_trip_members(db, trip_id, current_user.id)
+#     return [TripMemberResponse.model_validate(m) for m in members]
+
 @router.get("/{trip_id}/members", response_model=list[TripMemberResponse])
 async def list_members(
     trip_id: uuid.UUID,
@@ -116,3 +126,14 @@ async def list_members(
 ) -> list[TripMemberResponse]:
     members = await trip_service.list_trip_members(db, trip_id, current_user.id)
     return [TripMemberResponse.model_validate(m) for m in members]
+
+
+@router.post("/{trip_id}/members", response_model=TripMemberResponse, status_code=status.HTTP_201_CREATED)
+async def add_shadow_member(
+    trip_id: uuid.UUID,
+    payload: AddShadowMemberRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TripMemberResponse:
+    member = await trip_service.add_shadow_member(db, trip_id, current_user.id, payload.display_name)
+    return TripMemberResponse.model_validate(member)

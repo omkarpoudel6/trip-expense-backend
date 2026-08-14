@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from decimal import Decimal
 
+from app.models.user import User
 from app.models.trip import Trip, TripStatus
 from app.models.trip_member import MemberRole, MemberStatus, TripMember
 from app.schemas.trip import CreateTripRequest, UpdateTripRequest
@@ -151,9 +152,53 @@ async def list_user_trips(db: AsyncSession, user_id: uuid.UUID) -> list[Trip]:
     )
     return list(result.scalars().all())
 
-async def list_trip_members(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID) -> list[TripMember]:
+# async def list_trip_members(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID) -> list[TripMember]:
+#     await get_membership_or_403(db, trip_id, user_id)
+#     result = await db.execute(
+#         select(TripMember).where(TripMember.trip_id == trip_id, TripMember.status == MemberStatus.ACTIVE)
+#     )
+#     return list(result.scalars().all())
+
+async def list_trip_members(
+    db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID
+) -> list[dict]:
     await get_membership_or_403(db, trip_id, user_id)
+
     result = await db.execute(
         select(TripMember).where(TripMember.trip_id == trip_id, TripMember.status == MemberStatus.ACTIVE)
     )
-    return list(result.scalars().all())
+    members = list(result.scalars().all())
+
+    real_user_ids = [m.user_id for m in members if m.user_id is not None]
+    users_by_id: dict[uuid.UUID, User] = {}
+    if real_user_ids:
+        users_result = await db.execute(select(User).where(User.id.in_(real_user_ids)))
+        users_by_id = {u.id: u for u in users_result.scalars().all()}
+
+    response = []
+    for m in members:
+        if m.user_id is not None and m.user_id in users_by_id:
+            name = users_by_id[m.user_id].display_name
+        else:
+            name = m.display_name or "Unnamed member"
+        response.append(
+            {"id": m.id, "user_id": m.user_id, "display_name": name, "role": m.role, "status": m.status}
+        )
+    return response
+
+
+async def add_shadow_member(
+    db: AsyncSession, trip_id: uuid.UUID, admin_user_id: uuid.UUID, display_name: str
+) -> dict:
+    await require_admin(db, trip_id, admin_user_id)
+
+    member = TripMember(
+        trip_id=trip_id, user_id=None, display_name=display_name, role=MemberRole.MEMBER
+    )
+    db.add(member)
+    await db.commit()
+    await db.refresh(member)
+    return {
+        "id": member.id, "user_id": None, "display_name": display_name,
+        "role": member.role, "status": member.status,
+    }
