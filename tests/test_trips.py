@@ -309,3 +309,47 @@ async def test_list_members_returns_active_members(client: AsyncClient, valid_tr
     assert len(response.json()) == 2
     roles = {m["role"] for m in response.json()}
     assert roles == {"admin", "member"}
+    
+@pytest.mark.asyncio
+async def test_list_members_returns_real_display_names(client: AsyncClient, valid_trip_payload: dict):
+    owner = await _register_and_login(client, "names1@example.com", "Trip Owner")
+    create_resp = await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(owner["tokens"]))
+    trip_id = create_resp.json()["id"]
+
+    response = await client.get(f"/api/v1/trips/{trip_id}/members", headers=_auth_headers(owner["tokens"]))
+    assert response.status_code == 200
+    assert response.json()[0]["display_name"] == "Trip Owner"
+
+
+@pytest.mark.asyncio
+async def test_add_shadow_member_success(client: AsyncClient, valid_trip_payload: dict):
+    owner = await _register_and_login(client, "shadow1@example.com", "Owner")
+    create_resp = await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(owner["tokens"]))
+    trip_id = create_resp.json()["id"]
+
+    response = await client.post(
+        f"/api/v1/trips/{trip_id}/members", json={"display_name": "Sam (no app)"}, headers=_auth_headers(owner["tokens"])
+    )
+    assert response.status_code == 201
+    assert response.json()["user_id"] is None
+    assert response.json()["display_name"] == "Sam (no app)"
+
+    members_resp = await client.get(f"/api/v1/trips/{trip_id}/members", headers=_auth_headers(owner["tokens"]))
+    assert len(members_resp.json()) == 2
+
+
+@pytest.mark.asyncio
+async def test_add_shadow_member_denied_for_non_admin(client: AsyncClient, valid_trip_payload: dict):
+    owner = await _register_and_login(client, "shadow2@example.com", "Owner")
+    create_resp = await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(owner["tokens"]))
+    trip_id = create_resp.json()["id"]
+
+    invite_resp = await client.post(f"/api/v1/trips/{trip_id}/invites", headers=_auth_headers(owner["tokens"]))
+    code = invite_resp.json()["code"]
+    member = await _register_and_login(client, "shadow3@example.com", "Member")
+    await client.post("/api/v1/trips/join", json={"code": code}, headers=_auth_headers(member["tokens"]))
+
+    response = await client.post(
+        f"/api/v1/trips/{trip_id}/members", json={"display_name": "Uninvited add"}, headers=_auth_headers(member["tokens"])
+    )
+    assert response.status_code == 403

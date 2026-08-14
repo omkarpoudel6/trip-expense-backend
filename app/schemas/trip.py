@@ -66,6 +66,7 @@ class TripResponse(BaseModel):
 class TripMemberResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID | None
+    display_name: str
     role: MemberRole
     status: MemberStatus
 
@@ -82,3 +83,6 @@ class InviteResponse(BaseModel):
 
 class JoinTripRequest(BaseModel):
     code: str = Field(min_length=8, max_length=8)
+    
+class AddShadowMemberRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=100)

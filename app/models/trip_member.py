@@ -5,7 +5,7 @@ place a "shadow member" (someone without an app account) can live.
 import enum
 import uuid
 
-from sqlalchemy import Enum, ForeignKey
+from sqlalchemy import Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -31,6 +31,7 @@ class TripMember(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=MemberRole.MEMBER,
         nullable=False,
     )
+    display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[MemberStatus] = mapped_column(
         Enum(MemberStatus, name="member_status_enum", values_callable=lambda e: [m.value for m in e]),
         default=MemberStatus.ACTIVE,
