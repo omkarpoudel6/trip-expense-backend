@@ -135,3 +135,33 @@ async def test_get_balances_endpoint(client, db_session):
     balances = response.json()
     assert balances[str(m[users[0].id])] == "30.00"
     assert balances[str(m[users[1].id])] == "-30.00"
+    
+@pytest.mark.asyncio
+async def test_settlement_history_returns_confirmed_settlements(db_session):
+    from app.schemas.auth import RegisterRequest
+    from app.schemas.trip import CreateTripRequest
+    from app.services import auth_service, trip_service, trip_invite_service
+    from sqlalchemy import select
+    from app.models.trip_member import TripMember
+
+    owner = await auth_service.register_user(
+        db_session, RegisterRequest(email="hist1@example.com", password="TestPass123", display_name="Owner")
+    )
+    member = await auth_service.register_user(
+        db_session, RegisterRequest(email="hist2@example.com", password="TestPass123", display_name="Member")
+    )
+    trip = await trip_service.create_trip(
+        db_session, owner.id,
+        CreateTripRequest(name="History Test", destination="X", start_date="2026-12-01", end_date="2026-12-05", base_currency="USD"),
+    )
+    invite = await trip_invite_service.create_invite(db_session, trip.id, owner.id)
+    await trip_invite_service.join_trip_by_code(db_session, invite.code, member.id)
+
+    members_result = await db_session.execute(select(TripMember).where(TripMember.trip_id == trip.id))
+    members = {m.user_id: m.id for m in members_result.scalars().all()}
+
+    await settlement_service.confirm_settlement(db_session, trip.id, members[member.id], members[owner.id], Decimal("30.00"))
+
+    history = await settlement_service.list_confirmed_settlements(db_session, trip.id)
+    assert len(history) == 1
+    assert history[0].amount == Decimal("30.00")
