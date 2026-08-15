@@ -9,6 +9,7 @@ from decimal import ROUND_DOWN, Decimal
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.expense import Expense, ExpenseSplit, SplitType
 from app.models.trip_member import MemberStatus, TripMember
@@ -108,6 +109,9 @@ async def create_expense(
 
 async def list_trip_expenses(db: AsyncSession, trip_id: uuid.UUID) -> list[Expense]:
     result = await db.execute(
-        select(Expense).where(Expense.trip_id == trip_id, Expense.is_deleted.is_(False))
+        select(Expense)
+        .options(selectinload(Expense.splits))
+        .where(Expense.trip_id == trip_id, Expense.is_deleted.is_(False))
+        .order_by(Expense.expense_date.desc())
     )
     return list(result.scalars().all())
