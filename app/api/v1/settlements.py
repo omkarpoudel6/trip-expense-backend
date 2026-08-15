@@ -51,3 +51,19 @@ async def confirm_settlement(
         to_member=settlement.to_member, amount=settlement.amount,
         status=settlement.status.value, settled_at=settlement.settled_at.isoformat(),
     )
+    
+@router.get("/settlements/history", response_model=list[SettlementResponse])
+async def get_settlement_history(
+    trip_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[SettlementResponse]:
+    await get_membership_or_403(db, trip_id, current_user.id)
+    settlements = await settlement_service.list_confirmed_settlements(db, trip_id)
+    return [
+        SettlementResponse(
+            id=s.id, trip_id=s.trip_id, from_member=s.from_member, to_member=s.to_member,
+            amount=s.amount, status=s.status.value, settled_at=s.settled_at.isoformat(),
+        )
+        for s in settlements
+    ]

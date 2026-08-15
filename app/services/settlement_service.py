@@ -105,3 +105,9 @@ async def confirm_settlement(
     await db.commit()
     await db.refresh(settlement)
     return settlement
+
+async def list_confirmed_settlements(db: AsyncSession, trip_id: uuid.UUID) -> list[Settlement]:
+    result = await db.execute(
+        select(Settlement).where(Settlement.trip_id == trip_id).order_by(Settlement.settled_at.desc())
+    )
+    return list(result.scalars().all())
