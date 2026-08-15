@@ -197,3 +197,39 @@ async def test_invalid_payer_rejected(client: AsyncClient, db_session):
 
     assert exc_info.value.status_code == 400
     assert "not an active member" in exc_info.value.detail
+    
+@pytest.mark.asyncio
+async def test_list_expenses_via_http_includes_splits(client: AsyncClient):
+    owner = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "listexp@example.com", "password": "TestPass123", "display_name": "Owner"},
+    )
+    headers = {"Authorization": f"Bearer {owner.json()['tokens']['access_token']}"}
+
+    trip_resp = await client.post(
+        "/api/v1/trips",
+        json={"name": "List Test", "destination": "X", "start_date": "2026-12-01", "end_date": "2026-12-05", "base_currency": "USD"},
+        headers=headers,
+    )
+    trip_id = trip_resp.json()["id"]
+
+    members_resp = await client.get(f"/api/v1/trips/{trip_id}/members", headers=headers)
+    member_id = members_resp.json()[0]["id"]
+
+    categories_resp = await client.get("/api/v1/categories")
+    category_id = categories_resp.json()[0]["id"]
+
+    await client.post(
+        f"/api/v1/trips/{trip_id}/expenses",
+        json={
+            "category_id": category_id, "paid_by": member_id, "amount": 50.00, "currency": "USD",
+            "split_type": "equal", "split_between": [member_id],
+            "expense_date": "2026-12-02", "client_uuid": "11111111-1111-1111-1111-111111111111",
+        },
+        headers=headers,
+    )
+
+    response = await client.get(f"/api/v1/trips/{trip_id}/expenses", headers=headers)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert len(response.json()[0]["splits"]) == 1
