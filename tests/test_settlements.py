@@ -165,3 +165,87 @@ async def test_settlement_history_returns_confirmed_settlements(db_session):
     history = await settlement_service.list_confirmed_settlements(db_session, trip.id)
     assert len(history) == 1
     assert history[0].amount == Decimal("30.00")
+    
+@pytest.mark.asyncio
+async def test_confirmed_settlement_reduces_balance(db_session):
+    from app.schemas.auth import RegisterRequest
+    from app.schemas.trip import CreateTripRequest
+    from app.schemas.expense import CreateExpenseRequest
+    from app.services import auth_service, trip_service, trip_invite_service, expense_service
+    from app.models.trip_member import TripMember
+    from app.models.category import Category
+    from sqlalchemy import select
+    from tests.test_trips import _register_and_login, _auth_headers
+    from app.services.settlement_service import minimize_settlements
+    import uuid as uuid_module
+    
+
+    a = await auth_service.register_user(db_session, RegisterRequest(email="settle_a@example.com", password="TestPass123", display_name="A"))
+    b = await auth_service.register_user(db_session, RegisterRequest(email="settle_b@example.com", password="TestPass123", display_name="B"))
+    trip = await trip_service.create_trip(
+        db_session, a.id,
+        CreateTripRequest(name="Settle Test", destination="X", start_date="2026-12-01", end_date="2026-12-05", base_currency="USD"),
+    )
+    invite = await trip_invite_service.create_invite(db_session, trip.id, a.id)
+    await trip_invite_service.join_trip_by_code(db_session, invite.code, b.id)
+
+    m = {tm.user_id: tm.id for tm in (await db_session.execute(select(TripMember).where(TripMember.trip_id == trip.id))).scalars().all()}
+    category = (await db_session.execute(select(Category).where(Category.name == "Food"))).scalars().first()
+
+    await expense_service.create_expense(
+        db_session, trip.id, a.id,
+        CreateExpenseRequest(
+            category_id=category.id, paid_by=m[a.id], amount=100.00, currency="USD",
+            split_type="equal", split_between=[m[a.id], m[b.id]],
+            expense_date="2026-12-02", client_uuid=uuid_module.uuid4(),
+        ),
+    )
+
+    balances_before = await settlement_service.calculate_balances(db_session, trip.id)
+    assert balances_before[m[b.id]] == Decimal("-50.00")
+
+    await settlement_service.confirm_settlement(db_session, trip.id, m[b.id], m[a.id], Decimal("50.00"))
+
+    balances_after = await settlement_service.calculate_balances(db_session, trip.id)
+    assert balances_after[m[b.id]] == Decimal("0.00")
+    assert balances_after[m[a.id]] == Decimal("0.00")
+
+    transfers = minimize_settlements(balances_after)
+    assert transfers == []
+
+
+@pytest.mark.asyncio
+async def test_shadow_member_allowed_for_any_active_member(client):
+    from httpx import AsyncClient
+
+    trip_payload = {
+        "name": "Shadow Member Test",
+        "destination": "Somewhere",
+        "start_date": "2026-12-01",
+        "end_date": "2026-12-05",
+        "base_currency": "USD",
+    }
+
+    async def _register_and_login(client: AsyncClient, email: str, name: str) -> dict:
+        response = await client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": "TestPass123", "display_name": name},
+        )
+        return response.json()
+
+    def _auth_headers(tokens: dict) -> dict:
+        return {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    owner = await _register_and_login(client, "shadowperm1@example.com", "Owner")
+    create_resp = await client.post("/api/v1/trips", json=trip_payload, headers=_auth_headers(owner["tokens"]))
+    trip_id = create_resp.json()["id"]
+
+    invite_resp = await client.post(f"/api/v1/trips/{trip_id}/invites", headers=_auth_headers(owner["tokens"]))
+    code = invite_resp.json()["code"]
+    member = await _register_and_login(client, "shadowperm2@example.com", "Member")
+    await client.post("/api/v1/trips/join", json={"code": code}, headers=_auth_headers(member["tokens"]))
+
+    response = await client.post(
+        f"/api/v1/trips/{trip_id}/members", json={"display_name": "Added by non-admin"}, headers=_auth_headers(member["tokens"])
+    )
+    assert response.status_code == 201
