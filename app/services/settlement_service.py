@@ -46,6 +46,18 @@ async def calculate_balances(db: AsyncSession, trip_id: uuid.UUID) -> dict[uuid.
             if split.trip_member_id in member_ids:
                 balances[split.trip_member_id] -= Decimal(str(split.share_amount))
 
+    settlements_result = await db.execute(
+        select(Settlement).where(Settlement.trip_id == trip_id, Settlement.status == SettlementStatus.CONFIRMED)
+    )
+    for settlement in settlements_result.scalars().all():
+        # A confirmed settlement is a real payment: the payer's debt shrinks
+        # (balance moves toward zero), the receiver's credit shrinks by the
+        # same amount -- exactly like the transfer it represents.
+        if settlement.from_member in member_ids:
+            balances[settlement.from_member] += Decimal(str(settlement.amount))
+        if settlement.to_member in member_ids:
+            balances[settlement.to_member] -= Decimal(str(settlement.amount))
+    
     # Ensure every active member appears, even with a zero balance.
     for member_id in member_ids:
         balances.setdefault(member_id, Decimal("0.00"))

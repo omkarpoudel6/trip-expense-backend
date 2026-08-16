@@ -152,12 +152,6 @@ async def list_user_trips(db: AsyncSession, user_id: uuid.UUID) -> list[Trip]:
     )
     return list(result.scalars().all())
 
-# async def list_trip_members(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID) -> list[TripMember]:
-#     await get_membership_or_403(db, trip_id, user_id)
-#     result = await db.execute(
-#         select(TripMember).where(TripMember.trip_id == trip_id, TripMember.status == MemberStatus.ACTIVE)
-#     )
-#     return list(result.scalars().all())
 
 async def list_trip_members(
     db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID
@@ -188,9 +182,9 @@ async def list_trip_members(
 
 
 async def add_shadow_member(
-    db: AsyncSession, trip_id: uuid.UUID, admin_user_id: uuid.UUID, display_name: str
+    db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID, display_name: str
 ) -> dict:
-    await require_admin(db, trip_id, admin_user_id)
+    await get_membership_or_403(db, trip_id, user_id)
 
     member = TripMember(
         trip_id=trip_id, user_id=None, display_name=display_name, role=MemberRole.MEMBER

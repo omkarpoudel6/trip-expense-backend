@@ -339,7 +339,9 @@ async def test_add_shadow_member_success(client: AsyncClient, valid_trip_payload
 
 
 @pytest.mark.asyncio
-async def test_add_shadow_member_denied_for_non_admin(client: AsyncClient, valid_trip_payload: dict):
+async def test_add_shadow_member_allowed_for_non_admin_member(client: AsyncClient, valid_trip_payload: dict):
+    """Any active member can add a shadow member -- this is intentionally
+    less restrictive than invite generation, which stays admin-only."""
     owner = await _register_and_login(client, "shadow2@example.com", "Owner")
     create_resp = await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(owner["tokens"]))
     trip_id = create_resp.json()["id"]
@@ -350,6 +352,6 @@ async def test_add_shadow_member_denied_for_non_admin(client: AsyncClient, valid
     await client.post("/api/v1/trips/join", json={"code": code}, headers=_auth_headers(member["tokens"]))
 
     response = await client.post(
-        f"/api/v1/trips/{trip_id}/members", json={"display_name": "Uninvited add"}, headers=_auth_headers(member["tokens"])
+        f"/api/v1/trips/{trip_id}/members", json={"display_name": "Added by member"}, headers=_auth_headers(member["tokens"])
     )
-    assert response.status_code == 403
+    assert response.status_code == 201
