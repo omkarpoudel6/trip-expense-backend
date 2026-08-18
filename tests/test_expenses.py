@@ -233,3 +233,48 @@ async def test_list_expenses_via_http_includes_splits(client: AsyncClient):
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert len(response.json()[0]["splits"]) == 1
+    
+
+@pytest.mark.asyncio
+async def test_list_expenses_orders_by_most_recently_created(client: AsyncClient):
+    owner = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "order1@example.com", "password": "TestPass123", "display_name": "Owner"},
+    )
+    headers = {"Authorization": f"Bearer {owner.json()['tokens']['access_token']}"}
+
+    trip_resp = await client.post(
+        "/api/v1/trips",
+        json={"name": "Order Test", "destination": "X", "start_date": "2026-12-01", "end_date": "2026-12-05", "base_currency": "USD"},
+        headers=headers,
+    )
+    trip_id = trip_resp.json()["id"]
+    member_id = (await client.get(f"/api/v1/trips/{trip_id}/members", headers=headers)).json()[0]["id"]
+    category_id = (await client.get("/api/v1/categories")).json()[0]["id"]
+
+    # Same expense_date for both, deliberately -- this is exactly the case
+    # that broke ordering before the fix.
+    await client.post(
+        f"/api/v1/trips/{trip_id}/expenses",
+        json={
+            "category_id": category_id, "paid_by": member_id, "amount": 10.00, "currency": "USD",
+            "split_type": "equal", "split_between": [member_id],
+            "expense_date": "2026-12-02", "client_uuid": "22222222-2222-2222-2222-222222222222",
+            "notes": "First",
+        },
+        headers=headers,
+    )
+    await client.post(
+        f"/api/v1/trips/{trip_id}/expenses",
+        json={
+            "category_id": category_id, "paid_by": member_id, "amount": 20.00, "currency": "USD",
+            "split_type": "equal", "split_between": [member_id],
+            "expense_date": "2026-12-02", "client_uuid": "33333333-3333-3333-3333-333333333333",
+            "notes": "Second",
+        },
+        headers=headers,
+    )
+
+    response = await client.get(f"/api/v1/trips/{trip_id}/expenses", headers=headers)
+    notes_in_order = [e["notes"] for e in response.json()]
+    assert notes_in_order == ["Second", "First"]
