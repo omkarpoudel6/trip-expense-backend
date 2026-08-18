@@ -112,6 +112,6 @@ async def list_trip_expenses(db: AsyncSession, trip_id: uuid.UUID) -> list[Expen
         select(Expense)
         .options(selectinload(Expense.splits))
         .where(Expense.trip_id == trip_id, Expense.is_deleted.is_(False))
-        .order_by(Expense.expense_date.desc())
+        .order_by(Expense.created_at.desc())
     )
     return list(result.scalars().all())
