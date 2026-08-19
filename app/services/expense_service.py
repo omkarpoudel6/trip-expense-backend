@@ -22,6 +22,11 @@ def calculate_equal_splits(total: Decimal, member_ids: list[uuid.UUID], payer_id
     Split `total` evenly across member_ids. Any leftover cents from integer
     division go to the payer, so the sum always equals `total` exactly --
     never trust float division for money.
+
+    If the payer isn't part of the split (they fronted the cost but didn't
+    participate themselves), there's no natural owner for the leftover
+    cent(s), so it goes to the first participant instead -- deterministic,
+    not a crash.
     """
     count = len(member_ids)
     cents_total = int((total * 100).to_integral_value())
@@ -29,7 +34,10 @@ def calculate_equal_splits(total: Decimal, member_ids: list[uuid.UUID], payer_id
     remainder_cents = cents_total - (base_cents * count)
 
     splits = {member_id: Decimal(base_cents) / 100 for member_id in member_ids}
-    splits[payer_id] += Decimal(remainder_cents) / 100  # payer absorbs the leftover
+
+    remainder_recipient = payer_id if payer_id in splits else member_ids[0]
+    splits[remainder_recipient] += Decimal(remainder_cents) / 100
+
     return splits
 
 
