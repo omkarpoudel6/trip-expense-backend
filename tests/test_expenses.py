@@ -4,6 +4,7 @@ exact splits (including sum-mismatch rejection), and invalid-payer checks.
 """
 import pytest
 from httpx import AsyncClient
+from decimal import Decimal
 
 
 async def _register_and_login(client: AsyncClient, email: str, name: str) -> dict:
@@ -278,3 +279,35 @@ async def test_list_expenses_orders_by_most_recently_created(client: AsyncClient
     response = await client.get(f"/api/v1/trips/{trip_id}/expenses", headers=headers)
     notes_in_order = [e["notes"] for e in response.json()]
     assert notes_in_order == ["Second", "First"]
+    
+def test_calculate_equal_splits_payer_excluded_no_remainder():
+    from app.services.expense_service import calculate_equal_splits
+    import uuid as uuid_module
+
+    payer = uuid_module.uuid4()
+    a, b, c, d = uuid_module.uuid4(), uuid_module.uuid4(), uuid_module.uuid4(), uuid_module.uuid4()
+
+    # Payer not in the participant list -- this used to raise KeyError.
+    splits = calculate_equal_splits(Decimal("1000.00"), [a, b, c, d], payer)
+
+    assert payer not in splits
+    assert sum(splits.values()) == Decimal("1000.00")
+    assert all(v == Decimal("250.00") for v in splits.values())
+
+
+def test_calculate_equal_splits_payer_excluded_with_remainder():
+    from app.services.expense_service import calculate_equal_splits
+    import uuid as uuid_module
+
+    payer = uuid_module.uuid4()
+    a, b, c = uuid_module.uuid4(), uuid_module.uuid4(), uuid_module.uuid4()
+
+    # 1000 / 3 doesn't divide evenly -- remainder must go to the first
+    # participant (a), since the payer isn't in the split at all.
+    splits = calculate_equal_splits(Decimal("1000.00"), [a, b, c], payer)
+
+    assert payer not in splits
+    assert sum(splits.values()) == Decimal("1000.00")
+    assert splits[a] == Decimal("333.34")
+    assert splits[b] == Decimal("333.33")
+    assert splits[c] == Decimal("333.33")
