@@ -311,3 +311,186 @@ def test_calculate_equal_splits_payer_excluded_with_remainder():
     assert splits[a] == Decimal("333.34")
     assert splits[b] == Decimal("333.33")
     assert splits[c] == Decimal("333.33")
+    
+@pytest.mark.asyncio
+async def test_update_expense_recalculates_splits(client: AsyncClient):
+    owner = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "edit1@example.com", "password": "TestPass123", "display_name": "Owner"},
+    )
+    headers = {"Authorization": f"Bearer {owner.json()['tokens']['access_token']}"}
+
+    trip_resp = await client.post(
+        "/api/v1/trips",
+        json={"name": "Edit Test", "destination": "X", "start_date": "2026-12-01", "end_date": "2026-12-05", "base_currency": "USD"},
+        headers=headers,
+    )
+    trip_id = trip_resp.json()["id"]
+    member_id = (await client.get(f"/api/v1/trips/{trip_id}/members", headers=headers)).json()[0]["id"]
+    category_id = (await client.get("/api/v1/categories")).json()[0]["id"]
+
+    create_resp = await client.post(
+        f"/api/v1/trips/{trip_id}/expenses",
+        json={
+            "category_id": category_id, "paid_by": member_id, "amount": 100.00, "currency": "USD",
+            "split_type": "equal", "split_between": [member_id],
+            "expense_date": "2026-12-02", "client_uuid": "44444444-4444-4444-4444-444444444444",
+            "notes": "Original",
+        },
+        headers=headers,
+    )
+    expense_id = create_resp.json()["id"]
+
+    edit_resp = await client.patch(
+        f"/api/v1/trips/{trip_id}/expenses/{expense_id}",
+        json={
+            "category_id": category_id, "paid_by": member_id, "amount": 150.00, "currency": "USD",
+            "split_type": "equal", "split_between": [member_id],
+            "expense_date": "2026-12-02", "notes": "Edited",
+        },
+        headers=headers,
+    )
+    assert edit_resp.status_code == 200
+    assert edit_resp.json()["amount"] == 150.00
+    assert edit_resp.json()["notes"] == "Edited"
+    assert edit_resp.json()["splits"][0]["share_amount"] == 150.00
+
+
+@pytest.mark.asyncio
+async def test_delete_expense_is_soft_delete(client: AsyncClient):
+    owner = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "del1@example.com", "password": "TestPass123", "display_name": "Owner"},
+    )
+    headers = {"Authorization": f"Bearer {owner.json()['tokens']['access_token']}"}
+
+    trip_resp = await client.post(
+        "/api/v1/trips",
+        json={"name": "Delete Test", "destination": "X", "start_date": "2026-12-01", "end_date": "2026-12-05", "base_currency": "USD"},
+        headers=headers,
+    )
+    trip_id = trip_resp.json()["id"]
+    member_id = (await client.get(f"/api/v1/trips/{trip_id}/members", headers=headers)).json()[0]["id"]
+    category_id = (await client.get("/api/v1/categories")).json()[0]["id"]
+
+    create_resp = await client.post(
+        f"/api/v1/trips/{trip_id}/expenses",
+        json={
+            "category_id": category_id, "paid_by": member_id, "amount": 50.00, "currency": "USD",
+            "split_type": "equal", "split_between": [member_id],
+            "expense_date": "2026-12-02", "client_uuid": "55555555-5555-5555-5555-555555555555",
+        },
+        headers=headers,
+    )
+    expense_id = create_resp.json()["id"]
+
+    delete_resp = await client.delete(f"/api/v1/trips/{trip_id}/expenses/{expense_id}", headers=headers)
+    assert delete_resp.status_code == 204
+
+    list_resp = await client.get(f"/api/v1/trips/{trip_id}/expenses", headers=headers)
+    assert list_resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_edit_delete_denied_for_non_payer_non_admin(client: AsyncClient):
+    owner = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "perm1@example.com", "password": "TestPass123", "display_name": "Owner"},
+    )
+    owner_headers = {"Authorization": f"Bearer {owner.json()['tokens']['access_token']}"}
+
+    trip_resp = await client.post(
+        "/api/v1/trips",
+        json={"name": "Perm Test", "destination": "X", "start_date": "2026-12-01", "end_date": "2026-12-05", "base_currency": "USD"},
+        headers=owner_headers,
+    )
+    trip_id = trip_resp.json()["id"]
+
+    invite_resp = await client.post(f"/api/v1/trips/{trip_id}/invites", headers=owner_headers)
+    code = invite_resp.json()["code"]
+    bystander = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "perm2@example.com", "password": "TestPass123", "display_name": "Bystander"},
+    )
+    bystander_headers = {"Authorization": f"Bearer {bystander.json()['tokens']['access_token']}"}
+    await client.post("/api/v1/trips/join", json={"code": code}, headers=bystander_headers)
+
+    owner_member_id = next(
+        m["id"] for m in (await client.get(f"/api/v1/trips/{trip_id}/members", headers=owner_headers)).json()
+        if m["display_name"] == "Owner"
+    )
+    category_id = (await client.get("/api/v1/categories")).json()[0]["id"]
+
+    create_resp = await client.post(
+        f"/api/v1/trips/{trip_id}/expenses",
+        json={
+            "category_id": category_id, "paid_by": owner_member_id, "amount": 40.00, "currency": "USD",
+            "split_type": "equal", "split_between": [owner_member_id],
+            "expense_date": "2026-12-02", "client_uuid": "66666666-6666-6666-6666-666666666666",
+        },
+        headers=owner_headers,
+    )
+    expense_id = create_resp.json()["id"]
+
+    # Bystander is an active member but neither the payer nor admin -- should be blocked.
+    edit_resp = await client.patch(
+        f"/api/v1/trips/{trip_id}/expenses/{expense_id}",
+        json={
+            "category_id": category_id, "paid_by": owner_member_id, "amount": 99.00, "currency": "USD",
+            "split_type": "equal", "split_between": [owner_member_id],
+            "expense_date": "2026-12-02",
+        },
+        headers=bystander_headers,
+    )
+    assert edit_resp.status_code == 403
+
+    delete_resp = await client.delete(f"/api/v1/trips/{trip_id}/expenses/{expense_id}", headers=bystander_headers)
+    assert delete_resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_audit_log_records_create_update_delete(client: AsyncClient):
+    owner = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "audit1@example.com", "password": "TestPass123", "display_name": "Owner"},
+    )
+    headers = {"Authorization": f"Bearer {owner.json()['tokens']['access_token']}"}
+
+    trip_resp = await client.post(
+        "/api/v1/trips",
+        json={"name": "Audit Test", "destination": "X", "start_date": "2026-12-01", "end_date": "2026-12-05", "base_currency": "USD"},
+        headers=headers,
+    )
+    trip_id = trip_resp.json()["id"]
+    member_id = (await client.get(f"/api/v1/trips/{trip_id}/members", headers=headers)).json()[0]["id"]
+    category_id = (await client.get("/api/v1/categories")).json()[0]["id"]
+
+    create_resp = await client.post(
+        f"/api/v1/trips/{trip_id}/expenses",
+        json={
+            "category_id": category_id, "paid_by": member_id, "amount": 70.00, "currency": "USD",
+            "split_type": "equal", "split_between": [member_id],
+            "expense_date": "2026-12-02", "client_uuid": "77777777-7777-7777-7777-777777777777",
+        },
+        headers=headers,
+    )
+    expense_id = create_resp.json()["id"]
+
+    await client.patch(
+        f"/api/v1/trips/{trip_id}/expenses/{expense_id}",
+        json={
+            "category_id": category_id, "paid_by": member_id, "amount": 80.00, "currency": "USD",
+            "split_type": "equal", "split_between": [member_id],
+            "expense_date": "2026-12-02",
+        },
+        headers=headers,
+    )
+    await client.delete(f"/api/v1/trips/{trip_id}/expenses/{expense_id}", headers=headers)
+
+    log_resp = await client.get(f"/api/v1/trips/{trip_id}/expenses/audit-log", headers=headers)
+    assert log_resp.status_code == 200
+    actions = [entry["action"] for entry in log_resp.json()]
+    # Most recent first: deleted, updated, created
+    assert actions == ["deleted", "updated", "created"]
+    assert log_resp.json()[0]["performed_by_name"] == "Owner"
+    assert log_resp.json()[0]["amount"] == 80.00  # the amount at time of deletion

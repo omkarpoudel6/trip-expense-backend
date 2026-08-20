@@ -59,3 +59,30 @@ class ExpenseResponse(BaseModel):
     splits: list[ExpenseSplitResponse]
 
     model_config = {"from_attributes": True}
+    
+    
+class EditExpenseRequest(BaseModel):
+    category_id: uuid.UUID
+    paid_by: uuid.UUID
+    amount: float = Field(gt=0)
+    currency: str = Field(min_length=3, max_length=3)
+    split_type: SplitType
+    split_between: list[uuid.UUID] | None = None
+    exact_splits: list[ExactSplitEntry] | None = None
+    notes: str | None = None
+    expense_date: date
+
+    @field_validator("currency")
+    @classmethod
+    def currency_uppercase(cls, v: str) -> str:
+        return v.upper()
+
+
+class AuditLogResponse(BaseModel):
+    id: uuid.UUID
+    expense_id: uuid.UUID
+    action: str
+    performed_by_name: str
+    amount: float
+    summary: str
+    created_at: str

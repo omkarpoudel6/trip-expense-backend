@@ -11,3 +11,4 @@ from app.models.trip_invite import Invite # noqa: F401
 from app.models.settlement import Settlement  # noqa: F401
 from app.models.trip_member import TripMember # noqa: F401
 from app.models.user import User # noqa: F401
+from app.models.expense_audit_log import ExpenseAuditLog  # noqa: F401
