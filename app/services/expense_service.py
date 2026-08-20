@@ -13,8 +13,10 @@ from sqlalchemy.orm import selectinload
 
 from app.models.expense import Expense, ExpenseSplit, SplitType
 from app.models.trip_member import MemberStatus, TripMember
-from app.schemas.expense import CreateExpenseRequest
-from app.services.trip_service import get_membership_or_403
+from app.schemas.expense import CreateExpenseRequest, EditExpenseRequest
+from app.services.trip_service import get_membership_or_403, require_admin
+from app.models.user import User
+from app.models.expense_audit_log import AuditAction, ExpenseAuditLog
 
 
 def calculate_equal_splits(total: Decimal, member_ids: list[uuid.UUID], payer_id: uuid.UUID) -> dict[uuid.UUID, Decimal]:
