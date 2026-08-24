@@ -494,3 +494,40 @@ async def test_audit_log_records_create_update_delete(client: AsyncClient):
     assert actions == ["deleted", "updated", "created"]
     assert log_resp.json()[0]["performed_by_name"] == "Owner"
     assert log_resp.json()[0]["amount"] == 80.00  # the amount at time of deletion
+    
+    
+@pytest.mark.asyncio
+async def test_create_expense_idempotent_on_duplicate_client_uuid(client: AsyncClient):
+    owner = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "idem1@example.com", "password": "TestPass123", "display_name": "Owner"},
+    )
+    headers = {"Authorization": f"Bearer {owner.json()['tokens']['access_token']}"}
+
+    trip_resp = await client.post(
+        "/api/v1/trips",
+        json={"name": "Idempotency Test", "destination": "X", "start_date": "2026-12-01", "end_date": "2026-12-05", "base_currency": "USD"},
+        headers=headers,
+    )
+    trip_id = trip_resp.json()["id"]
+    member_id = (await client.get(f"/api/v1/trips/{trip_id}/members", headers=headers)).json()[0]["id"]
+    category_id = (await client.get("/api/v1/categories")).json()[0]["id"]
+
+    payload = {
+        "category_id": category_id, "paid_by": member_id, "amount": 88.00, "currency": "USD",
+        "split_type": "equal", "split_between": [member_id],
+        "expense_date": "2026-12-02", "client_uuid": "99999999-9999-9999-9999-999999999999",
+    }
+
+    first_resp = await client.post(f"/api/v1/trips/{trip_id}/expenses", json=payload, headers=headers)
+    assert first_resp.status_code == 201
+    first_id = first_resp.json()["id"]
+
+    # Simulate the offline queue retrying the exact same request -- must
+    # not error, must not create a second expense, must return the same one.
+    second_resp = await client.post(f"/api/v1/trips/{trip_id}/expenses", json=payload, headers=headers)
+    assert second_resp.status_code == 201
+    assert second_resp.json()["id"] == first_id
+
+    list_resp = await client.get(f"/api/v1/trips/{trip_id}/expenses", headers=headers)
+    assert len(list_resp.json()) == 1

@@ -94,6 +94,17 @@ async def create_expense(
     membership = await get_membership_or_403(db, trip_id, user_id)
     await _verify_active_payer(db, trip_id, payload.paid_by)
 
+    # Idempotency: if this exact client_uuid was already synced (e.g. an
+    # offline-queued request being retried after reconnecting), return the
+    # existing expense instead of erroring on the unique constraint. This
+    # is what makes offline replay safe -- the client can retry blindly.
+    existing_result = await db.execute(
+        select(Expense).options(selectinload(Expense.splits)).where(Expense.client_uuid == payload.client_uuid)
+    )
+    existing_expense = existing_result.scalar_one_or_none()
+    if existing_expense is not None:
+        return existing_expense
+    
     amount = Decimal(str(payload.amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
     split_amounts = _resolve_splits(amount, payload.split_type, payload.split_between, payload.exact_splits, payload.paid_by)
 
