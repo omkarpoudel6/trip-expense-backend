@@ -116,6 +116,12 @@ async def confirm_settlement(
     db.add(settlement)
     await db.commit()
     await db.refresh(settlement)
+    
+    to_member_row = (await db.execute(select(TripMember).where(TripMember.id == to_member))).scalar_one_or_none()
+    if to_member_row and to_member_row.user_id:
+        from app.services.notification_service import send_push_to_users
+        await send_push_to_users(db, [to_member_row.user_id], "Payment received", f"₹{amount} marked as paid", {"tripId": str(trip_id)})
+    
     return settlement
 
 async def list_confirmed_settlements(db: AsyncSession, trip_id: uuid.UUID) -> list[Settlement]:
