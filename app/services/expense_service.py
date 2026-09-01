@@ -130,6 +130,18 @@ async def create_expense(
 
     await db.commit()
     await db.refresh(expense, attribute_names=["splits"])
+    
+    other_user_ids = [
+        m.user_id for m in (await db.execute(
+            select(TripMember.user_id).where(
+                TripMember.trip_id == trip_id, TripMember.status == MemberStatus.ACTIVE,
+                TripMember.user_id.isnot(None), TripMember.user_id != user_id,
+            )
+        )).all() if m
+    ]
+    from app.services.notification_service import send_push_to_users
+    await send_push_to_users(db, other_user_ids, "New expense added", f"{amount} {payload.currency} — {payload.notes or 'expense'}", {"tripId": str(trip_id)})
+    
     return expense
 
 
