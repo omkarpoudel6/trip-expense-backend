@@ -15,6 +15,8 @@ config = context.config
 # Migrations run with the sync psycopg driver even though the app runs
 # async at request time -- Alembic itself doesn't need async.
 sync_db_url = str(settings.DATABASE_URL).replace("postgresql://", "postgresql+psycopg://", 1)
+if "localhost" not in sync_db_url and "127.0.0.1" not in sync_db_url:
+    sync_db_url += ("&" if "?" in sync_db_url else "?") + "sslmode=require"
 config.set_main_option("sqlalchemy.url", sync_db_url)
 
 # Interpret the config file for Python logging.
