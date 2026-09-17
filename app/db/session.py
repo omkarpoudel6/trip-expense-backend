@@ -12,10 +12,16 @@ from app.core.config import settings
 # POstgres URL comes in as postgresql:// -- asyncpg needs postgresql+asyncpg://
 _async_db_url = str(settings.DATABASE_URL).replace("postgresql://", "postgresql+asyncpg://", 1)
 
+connect_args = {}
+
+if "localhost" not in _async_db_url and "127.0.0.1" not in _async_db_url:
+    connect_args = {"ssl": "require"}
+
 engine = create_async_engine(
     _async_db_url,
     echo=settings.DEBUG,
-    pool_pre_ping=True,  # avoids stale-connection errors after idle periods
+    pool_pre_ping=True, # avoids stale-connection errors after idle periods
+    connect_args=connect_args,
 )
 
 AsyncSessionLocal = async_sessionmaker(
