@@ -196,3 +196,36 @@ async def add_shadow_member(
         "id": member.id, "user_id": None, "display_name": display_name,
         "role": member.role, "status": member.status,
     }
+    
+async def require_trip_ongoing(db: AsyncSession, trip_id: uuid.UUID) -> Trip:
+    trip = await get_trip_or_404(db, trip_id)
+    if trip.status == TripStatus.COMPLETED:
+        raise HTTPException(status_code=409, detail="This trip is completed and read-only. Reopen it to make changes.")
+    return trip
+
+
+async def complete_trip(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID) -> Trip:
+    await require_admin(db, trip_id, user_id)
+    trip = await get_trip_or_404(db, trip_id)
+
+    from app.services.settlement_service import calculate_balances
+    balances = await calculate_balances(db, trip_id)
+    unsettled = {str(mid): str(bal) for mid, bal in balances.items() if bal != 0}
+    if unsettled:
+        raise HTTPException(status_code=409, detail=f"Cannot complete trip — unsettled balances remain: {unsettled}")
+
+    print("Trip Status", TripStatus.COMPLETED)
+    trip.status = TripStatus.COMPLETED
+    
+    await db.commit()
+    await db.refresh(trip)
+    return trip
+
+
+async def reopen_trip(db: AsyncSession, trip_id: uuid.UUID, user_id: uuid.UUID) -> Trip:
+    await require_admin(db, trip_id, user_id)
+    trip = await get_trip_or_404(db, trip_id)
+    trip.status = TripStatus.ACTIVE
+    await db.commit()
+    await db.refresh(trip)
+    return trip

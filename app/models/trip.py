@@ -14,6 +14,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 class TripStatus(str, enum.Enum):
     ACTIVE = "active"
     ARCHIVED = "archived"
+    COMPLETED = "completed"
 
 
 class Trip(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -137,3 +137,18 @@ async def add_shadow_member(
 ) -> TripMemberResponse:
     member = await trip_service.add_shadow_member(db, trip_id, current_user.id, payload.display_name)
     return TripMemberResponse.model_validate(member)
+
+@router.post("/{trip_id}/complete", response_model=TripResponse)
+async def complete_trip(
+    trip_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+) -> TripResponse:
+    trip = await trip_service.complete_trip(db, trip_id, current_user.id)
+    return TripResponse.model_validate(trip)
+
+
+@router.post("/{trip_id}/reopen", response_model=TripResponse)
+async def reopen_trip(
+    trip_id: uuid.UUID, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+) -> TripResponse:
+    trip = await trip_service.reopen_trip(db, trip_id, current_user.id)
+    return TripResponse.model_validate(trip)

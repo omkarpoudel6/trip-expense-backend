@@ -93,6 +93,8 @@ async def create_expense(
 ) -> Expense:
     membership = await get_membership_or_403(db, trip_id, user_id)
     await _verify_active_payer(db, trip_id, payload.paid_by)
+    from app.services.trip_service import require_trip_ongoing
+    await require_trip_ongoing(db, trip_id)
 
     # Idempotency: if this exact client_uuid was already synced (e.g. an
     # offline-queued request being retried after reconnecting), return the
@@ -167,6 +169,9 @@ async def update_expense(
 
     membership = await require_expense_editor(db, trip_id, user_id, expense)
     await _verify_active_payer(db, trip_id, payload.paid_by)
+    
+    from app.services.trip_service import require_trip_ongoing
+    await require_trip_ongoing(db, trip_id)
 
     amount = Decimal(str(payload.amount)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
     split_amounts = _resolve_splits(amount, payload.split_type, payload.split_between, payload.exact_splits, payload.paid_by)
@@ -202,6 +207,9 @@ async def delete_expense(db: AsyncSession, trip_id: uuid.UUID, expense_id: uuid.
         raise HTTPException(status_code=404, detail="Expense not found.")
 
     membership = await require_expense_editor(db, trip_id, user_id, expense)
+
+    from app.services.trip_service import require_trip_ongoing
+    await require_trip_ongoing(db, trip_id)
 
     db.add(ExpenseAuditLog(
         trip_id=trip_id, expense_id=expense.id, action=AuditAction.DELETED, performed_by=membership.id,
