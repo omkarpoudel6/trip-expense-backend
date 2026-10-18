@@ -355,3 +355,67 @@ async def test_add_shadow_member_allowed_for_non_admin_member(client: AsyncClien
         f"/api/v1/trips/{trip_id}/members", json={"display_name": "Added by member"}, headers=_auth_headers(member["tokens"])
     )
     assert response.status_code == 201
+    
+@pytest.mark.asyncio
+async def test_complete_trip_blocked_with_unsettled_balance(client: AsyncClient, valid_trip_payload: dict):
+    owner = await _register_and_login(client, "complete1@example.com", "Owner")
+    create_resp = await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(owner["tokens"]))
+    trip_id = create_resp.json()["id"]
+    member_id = (await client.get(f"/api/v1/trips/{trip_id}/members", headers=_auth_headers(owner["tokens"]))).json()[0]["id"]
+    category_id = (await client.get("/api/v1/categories")).json()[0]["id"]
+    invite_resp = await client.post(f"/api/v1/trips/{trip_id}/invites", headers=_auth_headers(owner["tokens"]))
+    code = invite_resp.json()["code"]
+    member = await _register_and_login(client, "complete2@example.com", "Member")
+    await client.post("/api/v1/trips/join", json={"code": code}, headers=_auth_headers(member["tokens"]))
+    member2_id = next(m["id"] for m in (await client.get(f"/api/v1/trips/{trip_id}/members", headers=_auth_headers(owner["tokens"]))).json() if m["id"] != member_id)
+
+    await client.post(
+        f"/api/v1/trips/{trip_id}/expenses",
+        json={"category_id": category_id, "paid_by": member_id, "amount": 100.00, "currency": "USD",
+              "split_type": "equal", "split_between": [member_id, member2_id],
+              "expense_date": "2026-09-05", "client_uuid": "aaaaaaaa-0000-0000-0000-000000000001"},
+        headers=_auth_headers(owner["tokens"]),
+    )
+
+    response = await client.post(f"/api/v1/trips/{trip_id}/complete", headers=_auth_headers(owner["tokens"]))
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_complete_and_reopen_trip_when_settled(client: AsyncClient, valid_trip_payload: dict):
+    owner = await _register_and_login(client, "complete3@example.com", "Owner")
+    create_resp = await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(owner["tokens"]))
+    trip_id = create_resp.json()["id"]
+
+    complete_resp = await client.post(f"/api/v1/trips/{trip_id}/complete", headers=_auth_headers(owner["tokens"]))
+    assert complete_resp.status_code == 200
+    assert complete_resp.json()["status"] == "completed"
+
+    category_id = (await client.get("/api/v1/categories")).json()[0]["id"]
+    member_id = (await client.get(f"/api/v1/trips/{trip_id}/members", headers=_auth_headers(owner["tokens"]))).json()[0]["id"]
+    blocked_resp = await client.post(
+        f"/api/v1/trips/{trip_id}/expenses",
+        json={"category_id": category_id, "paid_by": member_id, "amount": 10.00, "currency": "USD",
+              "split_type": "equal", "split_between": [member_id],
+              "expense_date": "2026-09-05", "client_uuid": "aaaaaaaa-0000-0000-0000-000000000002"},
+        headers=_auth_headers(owner["tokens"]),
+    )
+    assert blocked_resp.status_code == 409
+
+    reopen_resp = await client.post(f"/api/v1/trips/{trip_id}/reopen", headers=_auth_headers(owner["tokens"]))
+    assert reopen_resp.status_code == 200
+    assert reopen_resp.json()["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_complete_trip_denied_for_non_admin(client: AsyncClient, valid_trip_payload: dict):
+    owner = await _register_and_login(client, "complete4@example.com", "Owner")
+    create_resp = await client.post("/api/v1/trips", json=valid_trip_payload, headers=_auth_headers(owner["tokens"]))
+    trip_id = create_resp.json()["id"]
+    invite_resp = await client.post(f"/api/v1/trips/{trip_id}/invites", headers=_auth_headers(owner["tokens"]))
+    code = invite_resp.json()["code"]
+    member = await _register_and_login(client, "complete5@example.com", "Member")
+    await client.post("/api/v1/trips/join", json={"code": code}, headers=_auth_headers(member["tokens"]))
+
+    response = await client.post(f"/api/v1/trips/{trip_id}/complete", headers=_auth_headers(member["tokens"]))
+    assert response.status_code == 403

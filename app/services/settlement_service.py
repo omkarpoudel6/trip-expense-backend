@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.expense import Expense, ExpenseSplit
 from app.models.trip_member import MemberStatus, TripMember
 from app.models.settlement import Settlement, SettlementStatus
+# from app.services.trip_service import require_trip_ongoing
 
 
 async def calculate_balances(db: AsyncSession, trip_id: uuid.UUID) -> dict[uuid.UUID, Decimal]:
@@ -109,6 +110,8 @@ async def get_suggested_transfers(db: AsyncSession, trip_id: uuid.UUID) -> list[
 async def confirm_settlement(
     db: AsyncSession, trip_id: uuid.UUID, from_member: uuid.UUID, to_member: uuid.UUID, amount: Decimal
 ) -> Settlement:
+    from app.services.trip_service import require_trip_ongoing
+    await require_trip_ongoing(db, trip_id)
     settlement = Settlement(
         trip_id=trip_id, from_member=from_member, to_member=to_member,
         amount=amount, status=SettlementStatus.CONFIRMED,
